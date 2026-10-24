@@ -710,23 +710,536 @@ html.motion-paused .hero-meta .scroll-arrow{animation-play-state:paused!importan
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@studio-freight/lenis@1.0.42/dist/lenis.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<!-- js:placeholder -->
-<script>
-  // placeholder: đếm số rồi nhả curtain — logic đầy đủ vào commit "feat(js)"
-  (() => {
-    const c = document.querySelector('.loader-count');
-    let v = 0;
-    const t = setInterval(() => {
-      v = Math.min(100, v + 7);
-      if (c) c.textContent = String(v).padStart(3, '0');
-      if (v >= 100) {
-        clearInterval(t);
-        const l = document.querySelector('.loader');
-        if (l) { l.style.transition = 'transform .7s cubic-bezier(.77,0,.18,1)'; l.style.transform = 'translateY(-100%)'; }
-        setTimeout(() => { document.querySelector('.loader')?.remove(); }, 750);
+<script>(() => {
+'use strict';
+const doc = document;
+const html = doc.documentElement;
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const finePointer = matchMedia('(pointer: fine)').matches;
+const hasGSAP = typeof window.gsap !== 'undefined' && typeof window.ScrollTrigger !== 'undefined';
+const hasLenis = typeof window.Lenis !== 'undefined';
+if (hasGSAP) gsap.registerPlugin(ScrollTrigger);
+const $ = (s, c) => (c || doc).querySelector(s);
+const $$ = (s, c) => Array.from((c || doc).querySelectorAll(s));
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+/* ============================================================
+   TICKER — build 2 identical halves of 5 items each (10 total)
+   ============================================================ */
+(() => {
+  const items = ['Espresso','Cà phê trứng','Croissant bơ','Latte','Cold brew cam','Tiramisu','Cinnamon roll','Bánh su kem','Cheese yuzu','Bạc xỉu'];
+  const track = $('#tickerTrack'); if (!track) return;
+  const half = items.slice(0, 5);
+  const html5 = [...half, ...half].map(t => `<span>${t}</span>`).join('');
+  track.innerHTML = html5 + html5; /* 2 identical halves → translateX(-40%) seamless (5 spans = 40%) */
+})();
+
+/* ============================================================
+   THREE.JS HERO SCENE — procedural coffee cup + bakery floaters
+   ============================================================ */
+let scene3d = null;
+function initScene() {
+  const host = $('#stage3d');
+  if (!host || typeof THREE === 'undefined') { if (host) host.classList.add('no-webgl'); return null; }
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true }); }
+  catch (e) { host.classList.add('no-webgl'); return null; }
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setClearColor(0x000000, 0);
+  renderer.domElement.className = 'stage-canvas';
+  renderer.domElement.setAttribute('aria-hidden', 'true');
+  host.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(38, 1, .1, 60);
+  camera.position.set(0, 2.4, 7.9);
+  camera.lookAt(0, 1.05, 0);
+
+  /* --- environment: canvas equirect → PMREM (no HDR file) --- */
+  const envCanvas = doc.createElement('canvas');
+  envCanvas.width = 512; envCanvas.height = 256;
+  {
+    const x = envCanvas.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, '#332415'); g.addColorStop(.55, '#181009'); g.addColorStop(1, '#070503');
+    x.fillStyle = g; x.fillRect(0, 0, 512, 256);
+    const blob = (cx, cy, r, col) => {
+      const rg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+      rg.addColorStop(0, col); rg.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = rg; x.fillRect(cx - r, cy - r, r * 2, r * 2);
+    };
+    blob(392, 84, 128, 'rgba(255,224,178,1)');
+    blob(88, 62, 74, 'rgba(168,192,216,.85)');
+    blob(250, 150, 90, 'rgba(217,160,91,.5)');
+  }
+  const envTex = new THREE.CanvasTexture(envCanvas);
+  envTex.mapping = THREE.EquirectangularReflectionMapping;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envRT = pmrem.fromEquirectangular(envTex);
+  scene.environment = envRT.texture;
+
+  /* --- lights --- */
+  const sun = new THREE.DirectionalLight(0xffdcae, 2.3);
+  sun.position.set(4.5, 8, 4); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 9, bottom: -4 });
+  sun.shadow.normalBias = .03;
+  scene.add(sun);
+  const fill = new THREE.DirectionalLight(0x9db4d8, .5); fill.position.set(-6, 3, -3); scene.add(fill);
+  const warm = new THREE.PointLight(0xd9a05b, 12, 18); warm.position.set(-1.6, 3.2, 2.6); scene.add(warm);
+  scene.add(new THREE.AmbientLight(0xfff1dd, .36));
+
+  const lin = hex => new THREE.Color(hex).convertSRGBToLinear();
+  const MAT = {
+    ceramic:   new THREE.MeshPhysicalMaterial({ color: lin(0xefe3cd), roughness: .34, clearcoat: .5,  clearcoatRoughness: .3,  envMapIntensity: .7 }),
+    accent:    new THREE.MeshPhysicalMaterial({ color: lin(0xd9a05b), roughness: .3,  clearcoat: .7,  clearcoatRoughness: .2,  envMapIntensity: .85 }),
+    coffee:    new THREE.MeshPhysicalMaterial({ color: lin(0x2a1809), roughness: .1,  clearcoat: 1,   clearcoatRoughness: .08, envMapIntensity: 1.1 }),
+    bread:     new THREE.MeshStandardMaterial({ color: lin(0xc88f4d), roughness: .6,  envMapIntensity: .5 }),
+    breadDark: new THREE.MeshStandardMaterial({ color: lin(0xa96f33), roughness: .66, envMapIntensity: .45 }),
+    shell:     new THREE.MeshPhysicalMaterial({ color: lin(0xe9d7b6), roughness: .42, clearcoat: .35, envMapIntensity: .6 }),
+    bean:      new THREE.MeshPhysicalMaterial({ color: lin(0x40260f), roughness: .32, clearcoat: .6,  envMapIntensity: .9 }),
+    cream:     new THREE.MeshStandardMaterial({ color: lin(0xf2e7d3), roughness: .4,  envMapIntensity: .4 }),
+    cocoa:     new THREE.MeshStandardMaterial({ color: lin(0x5a3a1c), roughness: .5,  envMapIntensity: .4 })
+  };
+
+  const root = new THREE.Group(); scene.add(root);   /* pointer tilt */
+  const hero = new THREE.Group(); root.add(hero);    /* idle spin */
+
+  /* --- ground shadow catcher --- */
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(16, 16), new THREE.ShadowMaterial({ opacity: .3 }));
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+  /* --- espresso cup (lathe) --- */
+  const cupG = new THREE.Group();
+  {
+    const prof = [[0,.05],[.5,.05],[.6,.08],[.72,.5],[.78,1.0],[.755,1.06],[.71,1.02],[.645,.52],[.52,.16]]
+      .map(p => new THREE.Vector2(p[0], p[1]));
+    const cup = new THREE.Mesh(new THREE.LatheGeometry(prof, 48), MAT.ceramic);
+    cup.castShadow = cup.receiveShadow = true; cupG.add(cup);
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(.762, .022, 12, 48), MAT.ceramic);
+    lip.rotation.x = Math.PI / 2; lip.position.y = 1.04; cupG.add(lip);
+    const coffee = new THREE.Mesh(new THREE.CylinderGeometry(.655, .655, .03, 48), MAT.coffee);
+    coffee.position.y = .92; cupG.add(coffee);
+    const crema = new THREE.Mesh(new THREE.TorusGeometry(.6, .02, 8, 48), MAT.accent);
+    crema.rotation.x = Math.PI / 2; crema.position.y = .935; cupG.add(crema);
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(.25, .05, 14, 40, Math.PI * 1.35), MAT.ceramic);
+    handle.position.set(.88, .6, 0); handle.rotation.z = -2.1;
+    handle.castShadow = true; cupG.add(handle);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(.745, .013, 10, 48), MAT.accent);
+    band.rotation.x = Math.PI / 2; band.position.y = .3; cupG.add(band);
+    cupG.position.y = .15;
+  }
+  hero.add(cupG);
+
+  /* --- saucer (lathe) --- */
+  const saucerG = new THREE.Group();
+  {
+    const prof = [[0,.02],[.42,.02],[1.0,.08],[1.16,.15],[1.1,.18],[.6,.12],[.42,.1]]
+      .map(p => new THREE.Vector2(p[0], p[1]));
+    const saucer = new THREE.Mesh(new THREE.LatheGeometry(prof, 56), MAT.ceramic);
+    saucer.castShadow = saucer.receiveShadow = true; saucerG.add(saucer);
+  }
+  hero.add(saucerG);
+
+  /* --- donut with glaze + sprinkles --- */
+  const donut = new THREE.Group();
+  {
+    const base = new THREE.Mesh(new THREE.TorusGeometry(.4, .185, 18, 36), MAT.bread);
+    base.rotation.x = -Math.PI / 2; base.castShadow = true; donut.add(base);
+    const icing = new THREE.Mesh(new THREE.TorusGeometry(.402, .19, 18, 36), MAT.accent);
+    icing.rotation.x = -Math.PI / 2; icing.scale.set(1, 1, .58); icing.position.y = .08;
+    icing.castShadow = true; donut.add(icing);
+    const sprinkleCols = [MAT.cream, MAT.cocoa, MAT.cream, MAT.breadDark];
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 + i * .7;
+      const s = new THREE.Mesh(new THREE.BoxGeometry(.035, .035, .11), sprinkleCols[i % 4]);
+      s.position.set(Math.cos(a) * .4, .2, Math.sin(a) * .4);
+      s.rotation.set(Math.random() * 1.2 - .6, a, Math.random() * 1.4 - .7);
+      donut.add(s);
+    }
+  }
+  donut.position.set(-1.85, 1.95, -.35); donut.rotation.y = .5;
+  hero.add(donut);
+
+  /* --- croissant (arc of lobes) --- */
+  const croissant = new THREE.Group();
+  {
+    const n = 7;
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const ang = (-1 + 2 * t) * 1.15;                      /* radians from +Y axis */
+      const r = .17 * (1 - Math.pow(Math.abs(t - .5) * 2, 1.7) * .68);
+      const lobe = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 14), i % 2 ? MAT.breadDark : MAT.bread);
+      lobe.scale.set(1.35, .78, .8);
+      lobe.position.set(Math.sin(ang) * .48, Math.cos(ang) * .38, 0);
+      lobe.rotation.z = -ang * .9;
+      lobe.castShadow = true;
+      croissant.add(lobe);
+    }
+  }
+  croissant.position.set(1.85, 1.45, -.45); croissant.rotation.set(.2, -.45, .1);
+  hero.add(croissant);
+
+  /* --- macaron --- */
+  const macaron = new THREE.Group();
+  {
+    const shellG = new THREE.CylinderGeometry(.3, .335, .13, 36);
+    const fillG = new THREE.CylinderGeometry(.315, .315, .075, 36);
+    const top = new THREE.Mesh(shellG, MAT.shell); top.position.y = .1; top.castShadow = true;
+    const bot = new THREE.Mesh(shellG, MAT.shell); bot.position.y = -.1; bot.rotation.x = Math.PI; bot.castShadow = true;
+    const mid = new THREE.Mesh(fillG, MAT.accent);
+    macaron.add(top, bot, mid);
+  }
+  macaron.position.set(1.6, 2.8, .45); macaron.rotation.set(.5, .3, .25);
+  hero.add(macaron);
+
+  /* --- coffee beans --- */
+  const beans = new THREE.Group();
+  {
+    const bG = new THREE.SphereGeometry(.1, 14, 12);
+    [[-1.05, .5, 1.2, .4], [1.2, .42, 1.1, 1.8], [-.3, .4, 1.55, 3.1]].forEach(v => {
+      const b = new THREE.Mesh(bG, MAT.bean);
+      b.scale.set(1, .58, .76);
+      b.position.set(v[0], v[1], v[2]); b.rotation.y = v[3]; b.rotation.z = .3;
+      b.castShadow = true;
+      beans.add(b);
+    });
+  }
+  hero.add(beans);
+
+  /* --- steam particles --- */
+  const steam = (() => {
+    const N = 64;
+    const pos = new Float32Array(N * 3);
+    const dat = [];
+    for (let i = 0; i < N; i++) dat.push({ t: Math.random(), sp: .3 + Math.random() * .35, ph: Math.random() * Math.PI * 2 });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const c = doc.createElement('canvas'); c.width = c.height = 64;
+    const cx2 = c.getContext('2d');
+    const rg = cx2.createRadialGradient(32, 32, 0, 32, 32, 32);
+    rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(.4, 'rgba(255,255,255,.5)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+    cx2.fillStyle = rg; cx2.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    const m = new THREE.PointsMaterial({
+      size: .21, map: tex, transparent: true, opacity: 0, depthWrite: false,
+      blending: THREE.AdditiveBlending, color: lin(0xf6e7cf), sizeAttenuation: true
+    });
+    const pts = new THREE.Points(g, m);
+    pts.position.y = 1.18;
+    hero.add(pts);
+    return {
+      mat: m,
+      update(dt, time) {
+        for (let i = 0; i < N; i++) {
+          const d = dat[i];
+          d.t += dt * d.sp * .5;
+          if (d.t > 1) { d.t = 0; d.ph = Math.random() * Math.PI * 2; }
+          const y = d.t * 2.6;
+          const spread = .35 + d.t;
+          pos[i * 3]     = Math.sin(time * 1.35 + d.ph) * .12 * spread;
+          pos[i * 3 + 1] = y;
+          pos[i * 3 + 2] = Math.cos(time * 1.1 + d.ph) * .08 * spread;
+        }
+        g.attributes.position.needsUpdate = true;
       }
-    }, 105);
+    };
   })();
+
+  /* --- entrance registry --- */
+  const items = [];
+  const reg = (obj, dir, delay) => items.push({ obj, home: obj.position.clone(), dir: new THREE.Vector3(...dir), delay });
+  reg(cupG,     [0, 2.8, .6],    0);
+  reg(saucerG,  [-.9, -2, .4],   .06);
+  reg(donut,    [-1.6, 1.4, -.7],.2);
+  reg(croissant,[1.6, 1, -.9],   .3);
+  reg(macaron,  [.7, 1.6, 1],    .4);
+  reg(beans,    [1.3, -.8, 1.5], .48);
+
+  /* --- pointer tilt (lerped, never snaps) --- */
+  let tRX = 0, tRY = 0, rX = 0, rY = 0;
+  if (finePointer) {
+    window.addEventListener('pointermove', e => {
+      const nx = (e.clientX / window.innerWidth) * 2 - 1;
+      const ny = (e.clientY / window.innerHeight) * 2 - 1;
+      tRY = nx * .42; tRX = ny * .15;
+    }, { passive: true });
+  }
+
+  /* --- visibility + resize --- */
+  let visible = true;
+  const io = new IntersectionObserver(en => { visible = en[0].isIntersecting; }, { threshold: .02 });
+  io.observe(host);
+  const resize = () => {
+    const w = host.clientWidth, h = host.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.position.z = camera.aspect < .95 ? 8.9 : 7.9;
+    camera.updateProjectionMatrix();
+  };
+  const ro = new ResizeObserver(resize); ro.observe(host); resize();
+
+  /* --- render loop --- */
+  let raf = 0, last = performance.now(), paused = false;
+  const motionOK = !reduced;
+  const tick = now => {
+    raf = requestAnimationFrame(tick);
+    const dt = Math.min((now - last) / 1000, 1 / 30); last = now;
+    if (!visible || doc.hidden) return;
+    if (motionOK && !paused) {
+      rX += (tRX - rX) * .04; rY += (tRY - rY) * .04;
+      root.rotation.x = rX; root.rotation.y = rY;
+      hero.rotation.y += dt * .1;
+      steam.update(dt, now / 1000);
+    }
+    renderer.render(scene, camera);
+  };
+  raf = requestAnimationFrame(tick);
+
+  /* --- assembly + idle float (GSAP) --- */
+  let steamOn = true;
+  function assemble() {
+    if (!hasGSAP || reduced) return;
+    items.forEach(it => {
+      gsap.fromTo(it.obj.position,
+        { x: it.home.x + it.dir.x, y: it.home.y + it.dir.y, z: it.home.z + it.dir.z },
+        { x: it.home.x, y: it.home.y, z: it.home.z, duration: 1.5, delay: .05 + it.delay, ease: 'power3.out', overwrite: true });
+      gsap.fromTo(it.obj.scale, { x: .4, y: .4, z: .4 },
+        { x: 1, y: 1, z: 1, duration: 1.15, delay: .05 + it.delay, ease: 'back.out(1.5)', overwrite: true });
+    });
+    gsap.to(steam.mat, { opacity: steamOn ? .38 : 0, duration: 2.2, delay: 1.3 });
+    /* idle float — created after entrance settles so overwrite doesn't kill them */
+    [donut, croissant, macaron, beans].forEach((g, i) => {
+      gsap.delayedCall(1.7 + i * .3, () => {
+        gsap.to(g.position, { y: '+=.16', duration: 2.7 + i * .5, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+        gsap.to(g.rotation, { z: '+=.14', duration: 3.3 + i * .4, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+      });
+    });
+  }
+  if (!hasGSAP || reduced) steam.mat.opacity = .5; /* static steam without GSAP */
+
+  /* --- dispose everything --- */
+  function dispose() {
+    cancelAnimationFrame(raf); ro.disconnect(); io.disconnect();
+    scene.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) Array.isArray(o.material) ? o.material.forEach(m => m.dispose()) : o.material.dispose();
+    });
+    envTex.dispose(); envRT.dispose(); pmrem.dispose();
+    renderer.dispose(); renderer.domElement.remove();
+  }
+  window.addEventListener('pagehide', dispose, { once: true });
+
+  return {
+    assemble,
+    replay: assemble,
+    setPaused: p => { paused = p; },
+    toggleSteam: () => {
+      steamOn = !steamOn;
+      if (hasGSAP && !reduced) gsap.to(steam.mat, { opacity: steamOn ? .38 : 0, duration: .7 });
+      else steam.mat.opacity = steamOn ? .38 : 0;
+      return steamOn;
+    }
+  };
+}
+scene3d = initScene();
+
+/* ============================================================
+   LOADER → HERO ENTRANCE
+   ============================================================ */
+let heroTl = null;
+if (hasGSAP && !reduced) {
+  heroTl = gsap.timeline({ paused: true })
+    .from('.hero-eyebrow', { opacity: 0, y: 18, duration: .7, ease: 'power3.out' }, 0)
+    .from('.hero-line > span', { yPercent: 118, duration: 1.15, stagger: .1, ease: 'power4.out' }, .05)
+    .from('.hero-sub', { opacity: 0, y: 24, duration: .9, ease: 'power3.out' }, .55)
+    .from('.hero-ctas > *', { opacity: 0, y: 18, stagger: .09, duration: .8, ease: 'power3.out' }, .72)
+    .from('.site-header', { yPercent: -100, duration: .9, ease: 'power3.out' }, .35)
+    .from('.hero-stage', { opacity: 0, y: 30, duration: 1.1, ease: 'power3.out' }, .5)
+    .from('.hero-meta > *', { opacity: 0, y: 14, stagger: .08, duration: .7, ease: 'power3.out' }, .9);
+}
+let heroStarted = false;
+function startHero() {
+  if (heroStarted) return; heroStarted = true;
+  if (heroTl) heroTl.play();
+}
+const loaderEl = $('.loader');
+let loaderTl = null;
+if (hasGSAP && !reduced) {
+  const count = $('.loader-count'), bar = $('.loader-bar i');
+  const o = { v: 0 };
+  loaderTl = gsap.timeline()
+    .to(o, {
+      v: 100, duration: 1.5, ease: 'power2.inOut',
+      onUpdate: () => {
+        count.textContent = String(Math.round(o.v)).padStart(3, '0');
+        bar.style.transform = `scaleX(${o.v / 100})`;
+      }
+    })
+    .to(loaderEl, { yPercent: -101, duration: .95, ease: 'power4.inOut' }, '+=.12')
+    .call(() => { loaderEl.style.display = 'none'; startHero(); });
+  gsap.delayedCall(1.1, () => { if (scene3d) scene3d.assemble(); });
+} else {
+  loaderEl.style.display = 'none';
+  startHero();
+}
+
+/* ============================================================
+   SMOOTH SCROLL (Lenis on GSAP ticker)
+   ============================================================ */
+let lenis = null;
+if (hasGSAP && hasLenis && !reduced) {
+  lenis = new Lenis({ duration: 1.15, wheelMultiplier: .9 });
+  html.classList.add('lenis-on');
+  lenis.on('scroll', ScrollTrigger.update);
+  gsap.ticker.add(t => lenis.raf(t * 1000));
+  gsap.ticker.lagSmoothing(0);
+}
+
+/* ============================================================
+   SCROLL SCENES
+   ============================================================ */
+if (hasGSAP && !reduced) {
+  /* hero scrub-out */
+  gsap.to('.hero-copy', {
+    y: -60, opacity: .25,
+    scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: 1 }
+  });
+  /* generic reveals */
+  gsap.utils.toArray('.reveal').forEach(el =>
+    gsap.from(el, {
+      y: 55, opacity: 0, duration: 1.05, ease: 'power3.out',
+      scrollTrigger: { trigger: el, start: 'top 90%' }
+    }));
+  /* menu cards: clip-path reveal + inner art settle */
+  gsap.utils.toArray('.menu-card').forEach((card, i) => {
+    gsap.set(card, { clipPath: 'inset(0 0 100% 0 round 22px)' });
+    gsap.to(card, {
+      clipPath: 'inset(0 0 0% 0 round 22px)', duration: 1.05, ease: 'power3.inOut', delay: (i % 2) * .12,
+      scrollTrigger: { trigger: card, start: 'top 88%' }
+    });
+    gsap.from($( '.mc-art', card), { scale: 1.18, duration: 1.4, ease: 'power3.out',
+      scrollTrigger: { trigger: card, start: 'top 88%' } });
+  });
+  /* giant word drift */
+  gsap.to('.story-word', {
+    xPercent: -13,
+    scrollTrigger: { trigger: '.story', start: 'top bottom', end: 'bottom top', scrub: 1 }
+  });
+  /* principles rows slide */
+  gsap.utils.toArray('.principle').forEach((row, i) =>
+    gsap.from(row, {
+      x: i % 2 ? 46 : -46, opacity: 0, duration: 1.1, ease: 'power3.out',
+      scrollTrigger: { trigger: row, start: 'top 88%' }
+    }));
+  /* visit giant link masked rise */
+  gsap.from('.visit-line > span', {
+    yPercent: 118, duration: 1.2, ease: 'power4.out',
+    scrollTrigger: { trigger: '.visit', start: 'top 70%' }
+  });
+  /* header state */
+  ScrollTrigger.create({
+    start: 60,
+    onUpdate: self => $('.site-header').classList.toggle('scrolled', self.scroll() > 60)
+  });
+}
+
+/* ============================================================
+   CUSTOM CURSOR
+   ============================================================ */
+(() => {
+  if (!hasGSAP || reduced || !finePointer || window.innerWidth < 1000) return;
+  doc.body.classList.add('has-cursor');
+  const dot = $('.cursor-dot'), label = $('.cursor-label');
+  gsap.set([dot, label], { x: -100, y: -100 });
+  const dx = gsap.quickTo(dot, 'x', { duration: .16, ease: 'power3' });
+  const dy = gsap.quickTo(dot, 'y', { duration: .16, ease: 'power3' });
+  const lx = gsap.quickTo(label, 'x', { duration: .3, ease: 'power3' });
+  const ly = gsap.quickTo(label, 'y', { duration: .3, ease: 'power3' });
+  window.addEventListener('pointermove', e => {
+    dx(e.clientX); dy(e.clientY); lx(e.clientX); ly(e.clientY);
+    const t = e.target.closest('[data-cursor]');
+    if (t) { label.textContent = t.dataset.cursor; gsap.to(label, { opacity: 1, scale: 1, duration: .25 }); }
+    else gsap.to(label, { opacity: 0, scale: .8, duration: .2 });
+  }, { passive: true });
+})();
+
+/* ============================================================
+   MENU FILTER + ADD BUTTON
+   ============================================================ */
+(() => {
+  const btns = $$('.filter-btn'), cards = $$('.menu-card');
+  btns.forEach(b => b.addEventListener('click', () => {
+    btns.forEach(x => x.classList.toggle('on', x === b));
+    const f = b.dataset.filter;
+    cards.forEach(c => {
+      const show = f === 'all' || c.dataset.type === f;
+      if (show) {
+        c.style.display = '';
+        if (hasGSAP && !reduced) {
+          gsap.fromTo(c, { opacity: 0, scale: .93, y: 16 }, { opacity: 1, scale: 1, y: 0, duration: .55, ease: 'power3.out' });
+          gsap.set(c, { clipPath: 'inset(0 0 0% 0 round 22px)' });
+        }
+      } else {
+        if (hasGSAP && !reduced) {
+          gsap.to(c, { opacity: 0, scale: .93, duration: .26, ease: 'power2.in',
+            onComplete: () => { c.style.display = 'none'; ScrollTrigger.refresh(); } });
+        } else c.style.display = 'none';
+      }
+    });
+    if (hasGSAP) ScrollTrigger.refresh();
+  }));
+  cards.forEach(card => {
+    const add = $('.mc-add', card);
+    add.addEventListener('click', () => {
+      if (add.classList.contains('done')) return;
+      const orig = add.textContent;
+      add.classList.add('done'); add.textContent = '✓';
+      setTimeout(() => { add.classList.remove('done'); add.textContent = orig; }, 1700);
+    });
+  });
+})();
+
+/* ============================================================
+   STAGE CONTROLS + MOTION PAUSE + REPLAY
+   ============================================================ */
+const steamBtn = $('#steamToggle');
+if (steamBtn && scene3d) steamBtn.addEventListener('click', () => {
+  const on = scene3d.toggleSteam();
+  steamBtn.classList.toggle('on', on);
+  steamBtn.setAttribute('aria-pressed', String(on));
+});
+const replay3dBtn = $('#replay3d');
+if (replay3dBtn && scene3d) replay3dBtn.addEventListener('click', () => scene3d.replay());
+
+let motionPaused = false;
+const idleTweens = [];
+const motionBtn = $('#motionBtn');
+if (motionBtn) motionBtn.addEventListener('click', () => {
+  motionPaused = !motionPaused;
+  html.classList.toggle('motion-paused', motionPaused);
+  motionBtn.setAttribute('aria-pressed', String(motionPaused));
+  motionBtn.textContent = motionPaused ? '▶ Tiếp tục chuyển động' : '❚❚ Tạm dừng chuyển động';
+  if (scene3d) scene3d.setPaused(motionPaused);
+  if (lenis) motionPaused ? lenis.stop() : lenis.start();
+});
+
+const replayBtn = $('#replayBtn');
+if (replayBtn) replayBtn.addEventListener('click', () => {
+  if (lenis) lenis.scrollTo(0, { immediate: true }); else window.scrollTo(0, 0);
+  if (loaderTl) {
+    loaderEl.style.display = 'flex';
+    loaderTl.restart();
+  } else startHero();
+});
+})();
 </script>
 </body>
 </html>
