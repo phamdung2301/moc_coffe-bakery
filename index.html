@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MỘC® — Coffee &amp; Bakery | Cà phê rang mộc &amp; bánh nướng mỗi sáng</title>
+<meta name="description" content="MỘC — quán cà phê rang mộc & bakery concept tại Sài Gòn. Espresso, cà phê trứng, croissant ra lò 7:00 mỗi sáng."/>
+<meta name="theme-color" content="#14100a"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314100a'/%3E%3Cpath d='M16 6c5.5 4.5 5.5 15.5 0 20M11 9.5c3.2 2.2 6.8 2.2 10 0M11 22.5c3.2-2.2 6.8-2.2 10 0' stroke='%23d9a05b' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,500;1,600&family=Be+Vietnam+Pro:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============ TOKENS ============ */
+:root{
+  --bg:#14100a;
+  --bg-2:#1a140c;
+  --panel:#1d1710;
+  --ink:#f2e7d3;
+  --muted:#a4937c;
+  --accent:#d9a05b;
+  --accent-deep:#8a5f2c;
+  --dark-on-accent:#201309;
+  --line:rgba(217,160,91,.16);
+  --line-strong:rgba(217,160,91,.38);
+  --font-display:"Playfair Display",Georgia,serif;
+  --font-body:"Be Vietnam Pro",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,monospace;
+  --pad:clamp(20px,4.5vw,72px);
+  --header-h:74px;
+}
+/* ============ RESET / BASE ============ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:90px}
+html.lenis-on{scroll-behavior:auto}
+html,body{overflow-x:clip}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:var(--font-body);font-size:15px;font-weight:300;line-height:1.65;
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;
+}
+::selection{background:var(--accent);color:var(--dark-on-accent)}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+img,svg,canvas{display:block;max-width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:5px;border-radius:2px}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#3a2e1d;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+body.has-cursor, body.has-cursor a, body.has-cursor button{cursor:none}
+
+.eyebrow{
+  font-family:var(--font-mono);font-size:11px;letter-spacing:2.2px;
+  text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:10px;
+}
+.eyebrow::before{content:"";width:7px;height:7px;background:var(--accent);flex:none}
+em.acc{font-family:var(--font-display);font-style:italic;color:var(--accent);letter-spacing:0}
+
+/* ============ GRAIN ============ */
+.grain{
+  position:fixed;inset:-60%;width:220%;height:220%;pointer-events:none;z-index:1400;opacity:.07;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation:grainShift 9s steps(9) infinite;
+}
+@keyframes grainShift{
+  0%{transform:translate(0,0)}12%{transform:translate(-2%,1%)}25%{transform:translate(1%,-2%)}
+  38%{transform:translate(-1%,2%)}50%{transform:translate(2%,1%)}62%{transform:translate(-2%,-1%)}
+  75%{transform:translate(1%,2%)}88%{transform:translate(2%,-2%)}100%{transform:translate(0,0)}
+}
+
+</style>
+</head>
+<body>
+
+
+</body>
+</html>
